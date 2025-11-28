@@ -1,188 +1,377 @@
+/*
+  detective_final_fixed.c
+
+  Versao corrigida do Detective Quest - coleta de pistas, BST e tabela hash
+  - Corrige erro de compilacao em main relacionado a leitura do suspeito acusado
+  - Arvore binaria: mapa da mansao (salas)
+  - BST: armazenamento ordenado das pistas coletadas
+  - Hash (encadeamento): associacao pista -> suspeito
+  - Interacao: usuario navega com 'e' (esquerda), 'd' (direita) ou 's' (sair)
+  - Ao final, jogador acusa um suspeito; sistema verifica se pelo menos 2 pistas apontam para ele
+
+  Compilar:
+    gcc -std=c11 -Wall -Wextra -o detective_final_fixed detective_final_fixed.c
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-//
-// ==========================
-//   ESTRUTURA DA ARVORE BST
-// ==========================
-//
+#define HASH_SIZE 101
+#define MAX_PISTA 128
+#define MAX_SUSPEITO 128
 
-typedef struct NoBST {
-    char pista[50];
-    struct NoBST* esquerda;
-    struct NoBST* direita;
-} NoBST;
-
-// cria no da BST
-NoBST* criarNoBST(const char* pista) {
-    NoBST* novo = (NoBST*) malloc(sizeof(NoBST));
-    strcpy(novo->pista, pista);
-    novo->esquerda = NULL;
-    novo->direita = NULL;
-    return novo;
-}
-
-// insercao na BST
-NoBST* inserirBST(NoBST* raiz, const char* pista) {
-    if (raiz == NULL) {
-        return criarNoBST(pista);
-    }
-    if (strcmp(pista, raiz->pista) < 0) {
-        raiz->esquerda = inserirBST(raiz->esquerda, pista);
-    } else if (strcmp(pista, raiz->pista) > 0) {
-        raiz->direita = inserirBST(raiz->direita, pista);
-    }
-    return raiz;
-}
-
-// percurso em ordem (ordenado)
-void emOrdemBST(NoBST* raiz) {
-    if (raiz != NULL) {
-        emOrdemBST(raiz->esquerda);
-        printf("- %s\n", raiz->pista);
-        emOrdemBST(raiz->direita);
-    }
-}
-
-//
-// ===========================
-//     ESTRUTURA DA TRIE
-// ===========================
-//
-
-typedef struct Trie {
-    struct Trie* filhos[26];
-    int fimDaPalavra;
-} Trie;
-
-// cria no da trie
-Trie* criarTrie() {
-    Trie* novo = (Trie*) malloc(sizeof(Trie));
-    for (int i = 0; i < 26; i++)
-        novo->filhos[i] = NULL;
-    novo->fimDaPalavra = 0;
-    return novo;
-}
-
-// insere palavra na trie
-void inserirTrie(Trie* raiz, const char* palavra) {
-    Trie* atual = raiz;
-    for (int i = 0; palavra[i] != '\0'; i++) {
-        int idx = palavra[i] - 'a';
-        if (idx < 0 || idx > 25) continue;
-        if (atual->filhos[idx] == NULL)
-            atual->filhos[idx] = criarTrie();
-        atual = atual->filhos[idx];
-    }
-    atual->fimDaPalavra = 1;
-}
-
-// busca palavra na trie
-int buscarTrie(Trie* raiz, const char* palavra) {
-    Trie* atual = raiz;
-    for (int i = 0; palavra[i] != '\0'; i++) {
-        int idx = palavra[i] - 'a';
-        if (idx < 0 || idx > 25) continue;
-        if (atual->filhos[idx] == NULL) return 0;
-        atual = atual->filhos[idx];
-    }
-    return atual->fimDaPalavra;
-}
-
-//
-// ===========================
-//   ARVORE BINARIA DA MANSAO
-// ===========================
-//
+/* -----------------------------
+   ESTRUTURAS: SALA (MAPA)
+   ----------------------------- */
 
 typedef struct Sala {
-    char nome[50];
-    char pista[50];
+    char nome[80];
+    char pista[MAX_PISTA];   /* pista associada a esta sala (string vazia = sem pista) */
     struct Sala* esquerda;
     struct Sala* direita;
 } Sala;
 
-// cria sala
+/* criarSala() - cria dinamicamente um comodo (sala) com nome e pista */
 Sala* criarSala(const char* nome, const char* pista) {
-    Sala* nova = (Sala*) malloc(sizeof(Sala));
-    strcpy(nova->nome, nome);
-    strcpy(nova->pista, pista);
-    nova->esquerda = NULL;
-    nova->direita = NULL;
-    return nova;
+    Sala* s = (Sala*) malloc(sizeof(Sala));
+    if (!s) {
+        fprintf(stderr, "Erro: malloc falhou ao criar sala\n");
+        exit(EXIT_FAILURE);
+    }
+    strncpy(s->nome, nome, sizeof(s->nome) - 1);
+    s->nome[sizeof(s->nome) - 1] = '\0';
+    if (pista && pista[0] != '\0') {
+        strncpy(s->pista, pista, MAX_PISTA - 1);
+        s->pista[MAX_PISTA - 1] = '\0';
+    } else {
+        s->pista[0] = '\0';
+    }
+    s->esquerda = NULL;
+    s->direita = NULL;
+    return s;
 }
 
-// exploracao com coleta de pistas
-void explorarSalasComPistas(Sala* atual, NoBST** bst, Trie* trie) {
-    char opcao;
+/* liberar mapa (subarvores) */
+void liberarMapa(Sala* raiz) {
+    if (!raiz) return;
+    liberarMapa(raiz->esquerda);
+    liberarMapa(raiz->direita);
+    free(raiz);
+}
 
-    while (atual != NULL) {
+/* -----------------------------
+   ESTRUTURAS: BST PARA PISTAS
+   ----------------------------- */
 
-        printf("\nVoce esta em: %s\n", atual->nome);
+typedef struct NoBST {
+    char pista[MAX_PISTA];
+    struct NoBST* esquerda;
+    struct NoBST* direita;
+} NoBST;
 
-        if (strlen(atual->pista) > 0) {
-            printf("Pista encontrada: %s\n", atual->pista);
-            *bst = inserirBST(*bst, atual->pista);
-            inserirTrie(trie, atual->pista);
-        }
+/* criar no BST */
+NoBST* criarNoBST(const char* pista) {
+    NoBST* n = (NoBST*) malloc(sizeof(NoBST));
+    if (!n) {
+        fprintf(stderr, "Erro: malloc falhou ao criar NoBST\n");
+        exit(EXIT_FAILURE);
+    }
+    strncpy(n->pista, pista, MAX_PISTA - 1);
+    n->pista[MAX_PISTA - 1] = '\0';
+    n->esquerda = NULL;
+    n->direita = NULL;
+    return n;
+}
 
-        printf("Escolha (e = esquerda, d = direita, s = sair): ");
-        scanf(" %c", &opcao);
+/* inserirPista() - insere uma pista na BST (ignora duplicatas) */
+NoBST* inserirPista(NoBST* raiz, const char* pista) {
+    if (!pista || pista[0] == '\0') return raiz;
+    if (raiz == NULL) return criarNoBST(pista);
+    int cmp = strcmp(pista, raiz->pista);
+    if (cmp < 0) raiz->esquerda = inserirPista(raiz->esquerda, pista);
+    else if (cmp > 0) raiz->direita = inserirPista(raiz->direita, pista);
+    /* se igual, duplicata: nao inserir */
+    return raiz;
+}
 
-        if (opcao == 'e') {
-            atual = atual->esquerda;
-        }
-        else if (opcao == 'd') {
-            atual = atual->direita;
-        }
-        else if (opcao == 's') {
+/* buscarPistaBST - verifica se pista ja esta na BST */
+int buscarPistaBST(NoBST* raiz, const char* pista) {
+    if (!raiz) return 0;
+    int cmp = strcmp(pista, raiz->pista);
+    if (cmp == 0) return 1;
+    if (cmp < 0) return buscarPistaBST(raiz->esquerda, pista);
+    return buscarPistaBST(raiz->direita, pista);
+}
+
+/* exibirPistas - imprime as pistas em ordem alfabetica (in-order) */
+void exibirPistas(NoBST* raiz) {
+    if (!raiz) return;
+    exibirPistas(raiz->esquerda);
+    printf(" - %s\n", raiz->pista);
+    exibirPistas(raiz->direita);
+}
+
+/* liberar BST */
+void liberarBST(NoBST* raiz) {
+    if (!raiz) return;
+    liberarBST(raiz->esquerda);
+    liberarBST(raiz->direita);
+    free(raiz);
+}
+
+/* -----------------------------
+   ESTRUTURAS: HASH (ENCADAMENTO)
+   ----------------------------- */
+
+typedef struct HashNode {
+    char pista[MAX_PISTA];       /* chave */
+    char suspeito[MAX_SUSPEITO]; /* valor */
+    struct HashNode* next;
+} HashNode;
+
+typedef struct {
+    HashNode* buckets[HASH_SIZE];
+} HashTable;
+
+/* funcao hash simples (djb2) para strings */
+unsigned int hash_str(const char* s) {
+    unsigned long h = 5381;
+    while (*s) {
+        h = ((h << 5) + h) + (unsigned char)(*s); /* h * 33 + c */
+        s++;
+    }
+    return (unsigned int)(h % HASH_SIZE);
+}
+
+/* inicializa tabela */
+void ht_init(HashTable* ht) {
+    for (int i = 0; i < HASH_SIZE; ++i) ht->buckets[i] = NULL;
+}
+
+/* inserirNaHash() - insere ou atualiza associacao pista -> suspeito */
+void inserirNaHash(HashTable* ht, const char* pista, const char* suspeito) {
+    unsigned int idx = hash_str(pista);
+    HashNode* cur = ht->buckets[idx];
+    while (cur) {
+        if (strcmp(cur->pista, pista) == 0) {
+            /* atualiza suspeito */
+            strncpy(cur->suspeito, suspeito, MAX_SUSPEITO - 1);
+            cur->suspeito[MAX_SUSPEITO - 1] = '\0';
             return;
         }
-        else {
-            printf("Opcao invalida.\n");
+        cur = cur->next;
+    }
+    /* inserir novo no inicio */
+    HashNode* novo = (HashNode*) malloc(sizeof(HashNode));
+    if (!novo) { fprintf(stderr, "Erro: malloc falhou ht\n"); exit(EXIT_FAILURE); }
+    strncpy(novo->pista, pista, MAX_PISTA - 1);
+    novo->pista[MAX_PISTA - 1] = '\0';
+    strncpy(novo->suspeito, suspeito, MAX_SUSPEITO - 1);
+    novo->suspeito[MAX_SUSPEITO - 1] = '\0';
+    novo->next = ht->buckets[idx];
+    ht->buckets[idx] = novo;
+}
+
+/* encontrarSuspeito() - retorna ponteiro para suspeito (ou NULL se nao existir) */
+const char* encontrarSuspeito(HashTable* ht, const char* pista) {
+    unsigned int idx = hash_str(pista);
+    HashNode* cur = ht->buckets[idx];
+    while (cur) {
+        if (strcmp(cur->pista, pista) == 0) return cur->suspeito;
+        cur = cur->next;
+    }
+    return NULL;
+}
+
+/* ht_list - listar todas associacoes */
+void ht_list(HashTable* ht) {
+    printf("Associacoes (pista -> suspeito):\n");
+    int any = 0;
+    for (int i = 0; i < HASH_SIZE; ++i) {
+        HashNode* cur = ht->buckets[i];
+        while (cur) {
+            printf("  [%s] -> %s\n", cur->pista, cur->suspeito);
+            any = 1;
+            cur = cur->next;
+        }
+    }
+    if (!any) printf("  (nenhuma associacao definida)\n");
+}
+
+/* ht_free - liberar tabela */
+void ht_free(HashTable* ht) {
+    for (int i = 0; i < HASH_SIZE; ++i) {
+        HashNode* cur = ht->buckets[i];
+        while (cur) {
+            HashNode* n = cur->next;
+            free(cur);
+            cur = n;
+        }
+        ht->buckets[i] = NULL;
+    }
+}
+
+/* -----------------------------
+   EXPLORACAO E LOGICA DO JOGO
+   ----------------------------- */
+
+/* explorarSalas() - navega pela arvore e ativa o sistema de pistas.
+   Ao encontrar uma pista nao vazia, ela e:
+    - exibida ao jogador
+    - adicionada na BST (se ainda nao coletada)
+*/
+void explorarSalas(Sala* atual, NoBST** bst) {
+    char opcao;
+    while (atual != NULL) {
+        printf("\nVoce esta em: %s\n", atual->nome);
+        if (atual->pista[0] != '\0') {
+            printf("Pista encontrada: %s\n", atual->pista);
+            /* se ainda nao coletada, insere na BST */
+            if (!buscarPistaBST(*bst, atual->pista)) {
+                *bst = inserirPista(*bst, atual->pista);
+                printf("Pista adicionada ao acervo.\n");
+            } else {
+                printf("Pista ja coletada anteriormente.\n");
+            }
+        } else {
+            printf("Nenhuma pista nesta sala.\n");
+        }
+
+        /* verificacao de folha: se nao ha caminhos, fim da exploracao desta trilha */
+        if (atual->esquerda == NULL && atual->direita == NULL) {
+            printf("Esta sala nao possui caminhos. Voce pode sair.\n");
+            printf("Escolha (s = sair, c = continuar e voltar ao inicio - encerramos): ");
+            scanf(" %c", &opcao);
+            if (opcao == 's' || opcao == 'S') {
+                printf("Exploracao encerrada.\n");
+                return;
+            } else {
+                printf("Encerrando exploracao (simplificacao - retorna ao jogo principal).\n");
+                return;
+            }
+        }
+
+        printf("Escolha direcao (e = esquerda, d = direita, s = sair): ");
+        scanf(" %c", &opcao);
+        if (opcao == 'e' || opcao == 'E') {
+            if (atual->esquerda) atual = atual->esquerda;
+            else printf("Nao existe caminho a esquerda. Permanece na mesma sala.\n");
+        } else if (opcao == 'd' || opcao == 'D') {
+            if (atual->direita) atual = atual->direita;
+            else printf("Nao existe caminho a direita. Permanece na mesma sala.\n");
+        } else if (opcao == 's' || opcao == 'S') {
+            printf("Exploracao encerrada pelo usuario.\n");
+            return;
+        } else {
+            printf("Opcao invalida. Tente novamente.\n");
         }
     }
 }
 
-//
-// ===========================
-//             MAIN
-// ===========================
-//
+/* verificarSuspeitoFinal() - conta quantas pistas coletadas apontam para o suspeito acusado.
+   Requisito: pelo menos 2 pistas devem apontar para o mesmo suspeito para que acusacao seja validada.
+*/
+void verificarSuspeitoFinal(NoBST* pistasColetadas, HashTable* ht, const char* suspeitoAcusado) {
+    if (!pistasColetadas) {
+        printf("Nenhuma pista coletada. Nao e possivel acusar ninguem.\n");
+        return;
+    }
 
-int main() {
+    int contador = 0;
 
-    // cria mapa da mansao
-    Sala* hall = criarSala("Hall de Entrada", "chave dourada");
+    /* funcao recursiva interna para contar */
+    void contarRec(NoBST* node) {
+        if (!node) return;
+        contarRec(node->esquerda);
+        const char* s = encontrarSuspeito(ht, node->pista);
+        if (s && strcmp(s, suspeitoAcusado) == 0) contador++;
+        contarRec(node->direita);
+    }
+
+    contarRec(pistasColetadas);
+
+    printf("\nResultado do julgamento:\n");
+    printf("Suspeito acusado: %s\n", suspeitoAcusado);
+    printf("Pistas que apontam para ele: %d\n", contador);
+    if (contador >= 2) {
+        printf("Decisao: Acusacao validada! O suspeito pode ser considerado culpado.\n");
+    } else {
+        printf("Decisao: Evidencias insuficientes. Acusacao nao sustentada.\n");
+    }
+}
+
+/* -----------------------------
+   FUNCAO MAIN - monta mapa, hash, executa jogo
+   ----------------------------- */
+
+int main(void) {
+    /* montar mapa fixo da mansao (arvore binaria) */
+    Sala* hall = criarSala("Hall de Entrada", "");
     hall->esquerda = criarSala("Sala de Estar", "luva suja");
-    hall->direita  = criarSala("Cozinha", "faca afiada");
+    hall->direita  = criarSala("Cozinha", "faca marcada");
 
     hall->esquerda->esquerda = criarSala("Biblioteca", "pagina rasgada");
     hall->esquerda->direita  = criarSala("Sala de Jogos", "");
 
-    hall->direita->esquerda  = criarSala("Jardim", "pegadas");
-    hall->direita->direita   = criarSala("Porcao Secreta", "");
+    hall->direita->esquerda  = criarSala("Jardim", "pegadas molhadas");
+    hall->direita->direita   = criarSala("Porcao Secreta", "chave dourada");
 
-    // cria BST e TRIE
+    /* inicializar BST de pistas coletadas e tabela hash (pista -> suspeito) */
     NoBST* bstPistas = NULL;
-    Trie* triePistas = criarTrie();
+    HashTable ht;
+    ht_init(&ht);
 
-    printf("=== DETECTIVE QUEST: COLETA DE PISTAS ===\n");
+    /* definir associacoes pista -> suspeito (pre-definidas) */
+    inserirNaHash(&ht, "luva suja", "Sr_Mostarda");
+    inserirNaHash(&ht, "faca marcada", "Sr_Verde");
+    inserirNaHash(&ht, "pagina rasgada", "Sra_Branca");
+    inserirNaHash(&ht, "pegadas molhadas", "Sr_Mostarda");
+    inserirNaHash(&ht, "chave dourada", "Sra_Branca");
 
-    explorarSalasComPistas(hall, &bstPistas, triePistas);
+    printf("=== DETECTIVE QUEST - FASE FINAL ===\n");
+    printf("Explore a mansao e colete pistas. No final voce podera acusar um suspeito.\n");
 
-    printf("\n=== Pistas coletadas (BST - Em ordem) ===\n");
-    emOrdemBST(bstPistas);
+    /* explorar salas e coletar pistas (inserir no BST) */
+    explorarSalas(hall, &bstPistas);
 
-    char busca[50];
-    printf("\nDigite uma pista para buscar na TRIE: ");
-    scanf("%s", busca);
+    /* exibir pistas coletadas (ordenadas) */
+    printf("\nPistas coletadas (em ordem):\n");
+    if (!bstPistas) {
+        printf(" - (nenhuma pista coletada)\n");
+    } else {
+        exibirPistas(bstPistas);
+    }
 
-    if (buscarTrie(triePistas, busca))
-        printf("Pista encontrada!\n");
-    else
-        printf("Pista NAO encontrada.\n");
+    /* listar associacoes para consulta do jogador */
+    printf("\n(Referencias) Associacoes pista -> suspeito pre-definidas:\n");
+    ht_list(&ht);
 
+    /* solicitar ao jogador que acuse um suspeito (aceita espacos) */
+    char acusado[MAX_SUSPEITO];
+    printf("\nDigite o nome do suspeito que voce deseja acusar (ex: Sr_Mostarda ou Sra_Branca):\n> ");
+    /* limpar buffer restante do stdin antes de usar fgets */
+    int ch;
+    while ((ch = getchar()) != '\n' && ch != EOF) { } /* limpa linha residual */
+
+    if (fgets(acusado, sizeof(acusado), stdin) != NULL) {
+        size_t ln = strlen(acusado);
+        if (ln > 0 && acusado[ln - 1] == '\n') acusado[ln - 1] = '\0'; /* remove newline */
+    } else {
+        acusado[0] = '\0';
+    }
+
+    if (strlen(acusado) == 0) {
+        printf("Nenhum nome informado. Encerrando sem julgamento.\n");
+    } else {
+        verificarSuspeitoFinal(bstPistas, &ht, acusado);
+    }
+
+    /* liberar memoria */
+    liberarMapa(hall);
+    liberarBST(bstPistas);
+    ht_free(&ht);
+
+    printf("\nEncerrando. Obrigado por jogar!\n");
     return 0;
 }
