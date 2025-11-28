@@ -1,0 +1,188 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+//
+// ==========================
+//   ESTRUTURA DA ARVORE BST
+// ==========================
+//
+
+typedef struct NoBST {
+    char pista[50];
+    struct NoBST* esquerda;
+    struct NoBST* direita;
+} NoBST;
+
+// cria no da BST
+NoBST* criarNoBST(const char* pista) {
+    NoBST* novo = (NoBST*) malloc(sizeof(NoBST));
+    strcpy(novo->pista, pista);
+    novo->esquerda = NULL;
+    novo->direita = NULL;
+    return novo;
+}
+
+// insercao na BST
+NoBST* inserirBST(NoBST* raiz, const char* pista) {
+    if (raiz == NULL) {
+        return criarNoBST(pista);
+    }
+    if (strcmp(pista, raiz->pista) < 0) {
+        raiz->esquerda = inserirBST(raiz->esquerda, pista);
+    } else if (strcmp(pista, raiz->pista) > 0) {
+        raiz->direita = inserirBST(raiz->direita, pista);
+    }
+    return raiz;
+}
+
+// percurso em ordem (ordenado)
+void emOrdemBST(NoBST* raiz) {
+    if (raiz != NULL) {
+        emOrdemBST(raiz->esquerda);
+        printf("- %s\n", raiz->pista);
+        emOrdemBST(raiz->direita);
+    }
+}
+
+//
+// ===========================
+//     ESTRUTURA DA TRIE
+// ===========================
+//
+
+typedef struct Trie {
+    struct Trie* filhos[26];
+    int fimDaPalavra;
+} Trie;
+
+// cria no da trie
+Trie* criarTrie() {
+    Trie* novo = (Trie*) malloc(sizeof(Trie));
+    for (int i = 0; i < 26; i++)
+        novo->filhos[i] = NULL;
+    novo->fimDaPalavra = 0;
+    return novo;
+}
+
+// insere palavra na trie
+void inserirTrie(Trie* raiz, const char* palavra) {
+    Trie* atual = raiz;
+    for (int i = 0; palavra[i] != '\0'; i++) {
+        int idx = palavra[i] - 'a';
+        if (idx < 0 || idx > 25) continue;
+        if (atual->filhos[idx] == NULL)
+            atual->filhos[idx] = criarTrie();
+        atual = atual->filhos[idx];
+    }
+    atual->fimDaPalavra = 1;
+}
+
+// busca palavra na trie
+int buscarTrie(Trie* raiz, const char* palavra) {
+    Trie* atual = raiz;
+    for (int i = 0; palavra[i] != '\0'; i++) {
+        int idx = palavra[i] - 'a';
+        if (idx < 0 || idx > 25) continue;
+        if (atual->filhos[idx] == NULL) return 0;
+        atual = atual->filhos[idx];
+    }
+    return atual->fimDaPalavra;
+}
+
+//
+// ===========================
+//   ARVORE BINARIA DA MANSAO
+// ===========================
+//
+
+typedef struct Sala {
+    char nome[50];
+    char pista[50];
+    struct Sala* esquerda;
+    struct Sala* direita;
+} Sala;
+
+// cria sala
+Sala* criarSala(const char* nome, const char* pista) {
+    Sala* nova = (Sala*) malloc(sizeof(Sala));
+    strcpy(nova->nome, nome);
+    strcpy(nova->pista, pista);
+    nova->esquerda = NULL;
+    nova->direita = NULL;
+    return nova;
+}
+
+// exploracao com coleta de pistas
+void explorarSalasComPistas(Sala* atual, NoBST** bst, Trie* trie) {
+    char opcao;
+
+    while (atual != NULL) {
+
+        printf("\nVoce esta em: %s\n", atual->nome);
+
+        if (strlen(atual->pista) > 0) {
+            printf("Pista encontrada: %s\n", atual->pista);
+            *bst = inserirBST(*bst, atual->pista);
+            inserirTrie(trie, atual->pista);
+        }
+
+        printf("Escolha (e = esquerda, d = direita, s = sair): ");
+        scanf(" %c", &opcao);
+
+        if (opcao == 'e') {
+            atual = atual->esquerda;
+        }
+        else if (opcao == 'd') {
+            atual = atual->direita;
+        }
+        else if (opcao == 's') {
+            return;
+        }
+        else {
+            printf("Opcao invalida.\n");
+        }
+    }
+}
+
+//
+// ===========================
+//             MAIN
+// ===========================
+//
+
+int main() {
+
+    // cria mapa da mansao
+    Sala* hall = criarSala("Hall de Entrada", "chave dourada");
+    hall->esquerda = criarSala("Sala de Estar", "luva suja");
+    hall->direita  = criarSala("Cozinha", "faca afiada");
+
+    hall->esquerda->esquerda = criarSala("Biblioteca", "pagina rasgada");
+    hall->esquerda->direita  = criarSala("Sala de Jogos", "");
+
+    hall->direita->esquerda  = criarSala("Jardim", "pegadas");
+    hall->direita->direita   = criarSala("Porcao Secreta", "");
+
+    // cria BST e TRIE
+    NoBST* bstPistas = NULL;
+    Trie* triePistas = criarTrie();
+
+    printf("=== DETECTIVE QUEST: COLETA DE PISTAS ===\n");
+
+    explorarSalasComPistas(hall, &bstPistas, triePistas);
+
+    printf("\n=== Pistas coletadas (BST - Em ordem) ===\n");
+    emOrdemBST(bstPistas);
+
+    char busca[50];
+    printf("\nDigite uma pista para buscar na TRIE: ");
+    scanf("%s", busca);
+
+    if (buscarTrie(triePistas, busca))
+        printf("Pista encontrada!\n");
+    else
+        printf("Pista NAO encontrada.\n");
+
+    return 0;
+}
