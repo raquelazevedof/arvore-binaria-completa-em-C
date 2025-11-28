@@ -1,114 +1,87 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
-// Estrutura do no da arvore
-typedef struct No {
-    int valor;
-    struct No* esq;
-    struct No* dir;
-} No;
+// Estrutura que representa cada sala da mansao
+typedef struct Sala {
+    char nome[50];
+    struct Sala* esquerda;
+    struct Sala* direita;
+} Sala;
 
-// Funcao para criar um novo no
-No* criarNo(int valor) {
-    No* novo = (No*) malloc(sizeof(No));
-    if (novo == NULL) {
+// Funcao que cria uma sala usando alocacao dinamica
+Sala* criarSala(const char* nome) {
+    Sala* nova = (Sala*) malloc(sizeof(Sala));
+    if (nova == NULL) {
         printf("Erro ao alocar memoria.\n");
         exit(1);
     }
-    novo->valor = valor;
-    novo->esq = NULL;
-    novo->dir = NULL;
-    return novo;
+    strcpy(nova->nome, nome);
+    nova->esquerda = NULL;
+    nova->direita = NULL;
+    return nova;
 }
 
-// Insercao em arvore de busca binaria
-No* inserir(No* raiz, int valor) {
-    if (raiz == NULL) {
-        return criarNo(valor);
-    }
-    if (valor < raiz->valor) {
-        raiz->esq = inserir(raiz->esq, valor);
-    } else if (valor > raiz->valor) {
-        raiz->dir = inserir(raiz->dir, valor);
-    }
-    return raiz;
-}
+// Funcao para explorar as salas a partir da raiz
+void explorarSalas(Sala* atual) {
+    char opcao;
 
-// Caminhamento pre-ordem
-void preOrdem(No* raiz) {
-    if (raiz != NULL) {
-        printf("%d ", raiz->valor);
-        preOrdem(raiz->esq);
-        preOrdem(raiz->dir);
-    }
-}
+    while (atual != NULL) {
+        printf("\nVoce esta na sala: %s\n", atual->nome);
 
-// Caminhamento em ordem
-void emOrdem(No* raiz) {
-    if (raiz != NULL) {
-        emOrdem(raiz->esq);
-        printf("%d ", raiz->valor);
-        emOrdem(raiz->dir);
-    }
-}
-
-// Caminhamento pos-ordem
-void posOrdem(No* raiz) {
-    if (raiz != NULL) {
-        posOrdem(raiz->esq);
-        posOrdem(raiz->dir);
-        printf("%d ", raiz->valor);
-    }
-}
-
-// Menu principal
-int main() {
-    No* raiz = NULL;
-    int opcao, valor;
-
-    do {
-        printf("\n==== ARVORE BINARIA ====\n");
-        printf("1 - Inserir valor\n");
-        printf("2 - Exibir Pre-Ordem\n");
-        printf("3 - Exibir Em-Ordem\n");
-        printf("4 - Exibir Pos-Ordem\n");
-        printf("0 - Sair\n");
-        printf("Escolha: ");
-        scanf("%d", &opcao);
-
-        switch (opcao) {
-            case 1:
-                printf("Digite o valor: ");
-                scanf("%d", &valor);
-                raiz = inserir(raiz, valor);
-                break;
-
-            case 2:
-                printf("Pre-Ordem: ");
-                preOrdem(raiz);
-                printf("\n");
-                break;
-
-            case 3:
-                printf("Em-Ordem: ");
-                emOrdem(raiz);
-                printf("\n");
-                break;
-
-            case 4:
-                printf("Pos-Ordem: ");
-                posOrdem(raiz);
-                printf("\n");
-                break;
-
-            case 0:
-                printf("Saindo...\n");
-                break;
-
-            default:
-                printf("Opcao invalida.\n");
+        // Verifica se e um no-folha
+        if (atual->esquerda == NULL && atual->direita == NULL) {
+            printf("\nEsta sala nao possui caminhos. Fim da exploracao!\n");
+            return;
         }
-    } while (opcao != 0);
+
+        printf("Escolha um caminho (e = esquerda, d = direita, s = sair): ");
+        scanf(" %c", &opcao);
+
+        if (opcao == 'e' || opcao == 'E') {
+            if (atual->esquerda != NULL) {
+                atual = atual->esquerda;
+            } else {
+                printf("Nao existe caminho a esquerda!\n");
+            }
+        }
+        else if (opcao == 'd' || opcao == 'D') {
+            if (atual->direita != NULL) {
+                atual = atual->direita;
+            } else {
+                printf("Nao existe caminho a direita!\n");
+            }
+        }
+        else if (opcao == 's' || opcao == 'S') {
+            printf("Exploracao encerrada.\n");
+            return;
+        }
+        else {
+            printf("Opcao invalida.\n");
+        }
+    }
+}
+
+int main() {
+    // Criacao manual do mapa da mansao (arvore binaria)
+
+    Sala* hall = criarSala("Hall de Entrada");
+
+    // Nivel 1
+    hall->esquerda = criarSala("Sala de Estar");
+    hall->direita  = criarSala("Cozinha");
+
+    // Nivel 2
+    hall->esquerda->esquerda  = criarSala("Biblioteca");
+    hall->esquerda->direita   = criarSala("Sala de Jogos");
+
+    hall->direita->esquerda   = criarSala("Jardim");
+    hall->direita->direita    = criarSala("Poracao Secreta");
+
+    printf("=== DETECTIVE QUEST ===\n");
+    printf("Exploracao da mansao iniciada!\n");
+
+    explorarSalas(hall);
 
     return 0;
 }
